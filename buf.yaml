@@ -1,0 +1,12 @@
+version: v2
+modules:
+  - path: contracts/proto
+    name: buf.build/quetzalship/contracts
+lint:
+  use:
+    - STANDARD
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - FILE
