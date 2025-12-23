@@ -1,0 +1,5 @@
+# Ignorar archivos node_modules en Docker context
+node_modules
+dist
+.env.local
+.env.*.local

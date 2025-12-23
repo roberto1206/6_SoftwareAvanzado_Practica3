@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package quetzalship.orders.v1;
+
+import "google/protobuf/timestamp.proto";
+import "pricing/pricing.proto";
+
+option go_package = "quetzalship/orders/v1;ordersv1";
+
+// Estado de la orden
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_ACTIVE = 1;
+  ORDER_STATUS_CANCELLED = 2;
+}
+
+// Solicitud para crear una orden
+message CreateOrderRequest {
+  quetzalship.pricing.v1.Zone origin_zone = 1;
+  quetzalship.pricing.v1.Zone destination_zone = 2;
+  quetzalship.pricing.v1.ServiceType service_type = 3;
+  repeated quetzalship.pricing.v1.PackageInput packages = 4;
+  quetzalship.pricing.v1.DiscountInput discount = 5;
+  bool insurance_enabled = 6;
+  string idempotency_key = 7; // Para idempotencia
+}
+
+// Respuesta al crear una orden
+message CreateOrderResponse {
+  string order_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  OrderStatus status = 3;
+  quetzalship.pricing.v1.Zone origin_zone = 4;
+  quetzalship.pricing.v1.Zone destination_zone = 5;
+  quetzalship.pricing.v1.ServiceType service_type = 6;
+  repeated quetzalship.pricing.v1.PackageInput packages = 7;
+  quetzalship.pricing.v1.DiscountInput discount = 8;
+  bool insurance_enabled = 9;
+  quetzalship.pricing.v1.Breakdown breakdown = 10;
+  double total = 11;
+}
+
+// Solicitud para obtener una orden por ID
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+// Respuesta con el detalle completo de una orden
+message GetOrderResponse {
+  string order_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  OrderStatus status = 3;
+  quetzalship.pricing.v1.Zone origin_zone = 4;
+  quetzalship.pricing.v1.Zone destination_zone = 5;
+  quetzalship.pricing.v1.ServiceType service_type = 6;
+  repeated quetzalship.pricing.v1.PackageInput packages = 7;
+  quetzalship.pricing.v1.DiscountInput discount = 8;
+  bool insurance_enabled = 9;
+  quetzalship.pricing.v1.Breakdown breakdown = 10;
+  double total = 11;
+}
+
+// Solicitud para listar órdenes
+message ListOrdersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional OrderStatus status = 3; // Filtro opcional por estado
+}
+
+// Resumen de una orden para listado
+message OrderSummary {
+  string order_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  quetzalship.pricing.v1.Zone destination_zone = 3;
+  quetzalship.pricing.v1.ServiceType service_type = 4;
+  OrderStatus status = 5;
+  double total = 6;
+}
+
+// Respuesta al listar órdenes
+message ListOrdersResponse {
+  repeated OrderSummary orders = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_items = 4;
+  int32 total_pages = 5;
+}
+
+// Solicitud para cancelar una orden
+message CancelOrderRequest {
+  string order_id = 1;
+}
+
+// Respuesta al cancelar una orden
+message CancelOrderResponse {
+  string order_id = 1;
+  OrderStatus status = 2;
+  google.protobuf.Timestamp created_at = 3;
+  double total = 4;
+}
+
+// Servicio de órdenes
+service OrdersService {
+  // Crear una nueva orden
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  
+  // Obtener detalle de una orden
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  
+  // Listar órdenes
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  
+  // Cancelar una orden
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+}
