@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package quetzalship.pricing.v1;
+
+option go_package = "quetzalship/pricing/v1;pricingv1";
+
+// Zona geográfica
+enum Zone {
+  ZONE_UNSPECIFIED = 0;
+  ZONE_METRO = 1;
+  ZONE_INTERIOR = 2;
+  ZONE_FRONTERA = 3;
+}
+
+// Tipo de servicio
+enum ServiceType {
+  SERVICE_TYPE_UNSPECIFIED = 0;
+  SERVICE_TYPE_STANDARD = 1;
+  SERVICE_TYPE_EXPRESS = 2;
+  SERVICE_TYPE_SAME_DAY = 3;
+}
+
+// Tipo de descuento
+enum DiscountType {
+  DISCOUNT_TYPE_UNSPECIFIED = 0;
+  DISCOUNT_TYPE_NONE = 1;
+  DISCOUNT_TYPE_PERCENT = 2;
+  DISCOUNT_TYPE_FIXED = 3;
+}
+
+// Paquete individual
+message PackageInput {
+  double weight_kg = 1;        // > 0
+  double height_cm = 2;        // > 0
+  double width_cm = 3;         // > 0
+  double length_cm = 4;        // > 0
+  bool fragile = 5;
+  double declared_value_q = 6; // >= 0
+}
+
+// Descuento aplicado
+message DiscountInput {
+  DiscountType type = 1;
+  double value = 2; // PERCENT: <=35; FIXED: >=0
+}
+
+// Desglose del cálculo
+message Breakdown {
+  double order_billable_kg = 1;
+  double base_subtotal = 2;
+  double service_subtotal = 3;
+  double fragile_surcharge = 4;
+  double insurance_surcharge = 5;
+  double subtotal_with_surcharges = 6;
+  double discount_amount = 7;
+  double total = 8; // redondeado a 2 decimales
+}
+
+// Solicitud para calcular el precio
+message CalculatePricingRequest {
+  Zone origin_zone = 1;
+  Zone destination_zone = 2;
+  ServiceType service_type = 3;
+  repeated PackageInput packages = 4; // min 1
+  DiscountInput discount = 5;         // opcional (type puede ser NONE)
+  bool insurance_enabled = 6;
+}
+
+// Respuesta con el cálculo del precio
+message CalculatePricingResponse {
+  Breakdown breakdown = 1;
+  double total = 2;
+}
+
+// Servicio de cálculo de precios
+service PricingService {
+  rpc CalculatePricing(CalculatePricingRequest) returns (CalculatePricingResponse);
+}

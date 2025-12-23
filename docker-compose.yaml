@@ -1,0 +1,96 @@
+version: "3.9"
+
+services:
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: quetzalship-frontend
+    ports:
+      - "8080:80"
+    networks:
+      - quetzalship-net
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  pricing:
+    build:
+      context: .
+      dockerfile: ./services/pricing/Dockerfile
+    container_name: quetzalship-pricing
+    expose:
+      - "50052"
+    networks:
+      - quetzalship-net
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  orders:
+    build:
+      context: .
+      dockerfile: ./services/orders/Dockerfile
+    container_name: quetzalship-orders
+    expose:
+      - "50053"
+    networks:
+      - quetzalship-net
+    depends_on:
+      pricing:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  receipt:
+    build:
+      context: .
+      dockerfile: ./services/receipt/Dockerfile
+    container_name: quetzalship-receipt
+    expose:
+      - "50054"
+    networks:
+      - quetzalship-net
+    depends_on:
+      orders:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  gateway:
+    build:
+      context: .
+      dockerfile: ./services/gateway/Dockerfile
+    container_name: quetzalship-gateway
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./contracts:/app/contracts
+    networks:
+      - quetzalship-net
+    depends_on:
+      orders:
+        condition: service_healthy
+      receipt:
+        condition: service_healthy
+    environment:
+      NODE_ENV: "production"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+networks:
+  quetzalship-net:
+    driver: bridge

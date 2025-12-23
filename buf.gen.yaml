@@ -1,0 +1,10 @@
+version: v2
+managed:
+  enabled: false
+plugins:
+  - remote: buf.build/community/timostamm-protobuf-ts
+    out: generated
+    opt:
+      - long_type_string
+  - remote: buf.build/grpc/node
+    out: generated
