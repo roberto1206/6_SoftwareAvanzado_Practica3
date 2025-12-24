@@ -1,6 +1,21 @@
 version: "3.9"
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: quetzalship-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - quetzalship-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+
   frontend:
     build:
       context: ./services/frontend
@@ -91,6 +106,40 @@ services:
       timeout: 3s
       retries: 10
 
+  fx:
+    build:
+      context: .
+      dockerfile: ./services/fx/Dockerfile
+    container_name: quetzalship-fx
+    ports:
+      - "3001:3001"
+    networks:
+      - quetzalship-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: "3001"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_TTL: "3600"
+      FX_PRIMARY_API_URL: "https://api.exchangerate-api.com/v4/latest"
+      FX_SECONDARY_API_URL: "https://api.frankfurter.app/latest"
+      FX_TIMEOUT: "5000"
+      FX_RETRY_ATTEMPTS: "3"
+      FX_RETRY_DELAY: "1000"
+      CIRCUIT_BREAKER_THRESHOLD: "50"
+      CIRCUIT_BREAKER_TIMEOUT: "60000"
+      CIRCUIT_BREAKER_RESET_TIMEOUT: "30000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3001/fx/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
 networks:
   quetzalship-net:
     driver: bridge
+
+volumes:
+  redis-data:
