@@ -12,7 +12,7 @@ COPY services/fx/tsconfig*.json ./services/fx/
 
 # Install dependencies
 WORKDIR /app/services/fx
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 # Copy source code
 COPY services/fx/src ./src
@@ -29,7 +29,7 @@ WORKDIR /app
 COPY services/fx/package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --production --legacy-peer-deps && npm cache clean --force
 
 # Copy built application from builder
 COPY --from=builder /app/services/fx/dist ./dist
