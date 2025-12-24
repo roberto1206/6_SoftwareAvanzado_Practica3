@@ -43,6 +43,15 @@ services:
     depends_on:
       pricing:
         condition: service_healthy
+    environment:
+      DB_HOST: ${DB_HOST:-136.115.105.21}
+      DB_PORT: ${DB_PORT:-1433}
+      DB_USERNAME: ${DB_USERNAME:-sa}
+      DB_PASSWORD: ${DB_PASSWORD:-EconoMarket2024!}
+      DB_DATABASE: ${DB_DATABASE:-QuetzalShip}
+      DB_ENCRYPT: ${DB_ENCRYPT:-true}
+      DB_TRUST_SERVER_CERTIFICATE: ${DB_TRUST_SERVER_CERTIFICATE:-true}
+      PRICING_SERVICE_URL: pricing:50052
     healthcheck:
       test: ["CMD-SHELL", "exit 0"]
       interval: 10s
