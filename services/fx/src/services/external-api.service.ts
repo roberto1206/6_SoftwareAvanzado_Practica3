@@ -159,7 +159,7 @@ export class ExternalApiService {
     fn: () => Promise<T>,
     apiName: string,
   ): Promise<T> {
-    let lastError: Error;
+    let lastError: Error = new Error('No attempts made');
 
     for (let attempt = 0; attempt < this.config.retryAttempts; attempt++) {
       try {

@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { FxService } from '../services/fx.service';
-import { ConvertAmountRequest } from '../interfaces/fx.interface';
+import type { ConvertAmountRequest } from '../interfaces/fx.interface';
 
 @Controller('fx')
 export class FxController {
