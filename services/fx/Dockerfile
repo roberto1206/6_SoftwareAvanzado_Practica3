@@ -31,11 +31,14 @@ COPY services/fx/package*.json ./
 # Install production dependencies only
 RUN npm install --production --legacy-peer-deps && npm cache clean --force
 
+# Copy proto files (needed for gRPC runtime)
+COPY contracts ./contracts
+
 # Copy built application from builder
 COPY --from=builder /app/services/fx/dist ./dist
 
-# Expose port
-EXPOSE 3001
+# Expose ports (HTTP and gRPC)
+EXPOSE 3001 50055
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
