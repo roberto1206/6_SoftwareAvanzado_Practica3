@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package quetzalship.fx.v1;
+
+option go_package = "quetzalship/fx/v1;fxv1";
+
+// Servicio de conversión de divisas
+service FxService {
+  // Obtener tasa de cambio
+  rpc GetExchangeRate(GetExchangeRateRequest) returns (GetExchangeRateResponse);
+  
+  // Convertir monto
+  rpc ConvertAmount(ConvertAmountRequest) returns (ConvertAmountResponse);
+  
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ========================================
+// GET EXCHANGE RATE
+// ========================================
+
+message GetExchangeRateRequest {
+  string base = 1;   // Moneda origen (ej: "USD")
+  string quote = 2;  // Moneda destino (ej: "MXN")
+}
+
+message GetExchangeRateResponse {
+  string base = 1;
+  string quote = 2;
+  double rate = 3;
+  string timestamp = 4;
+  string source = 5;  // "cache", "primary", "secondary", "stale"
+}
+
+// ========================================
+// CONVERT AMOUNT
+// ========================================
+
+message ConvertAmountRequest {
+  string from = 1;          // Moneda origen
+  string to = 2;            // Moneda destino
+  double amount = 3;        // Monto a convertir
+}
+
+message ConvertAmountResponse {
+  double original_amount = 1;
+  double converted_amount = 2;
+  string from = 3;
+  string to = 4;
+  double rate = 5;
+  string timestamp = 6;
+  string source = 7;
+}
+
+// ========================================
+// HEALTH CHECK
+// ========================================
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;          // "healthy" | "degraded" | "unhealthy"
+  string redis = 2;           // "connected" | "disconnected"
+  CircuitBreakerStatus primary_circuit = 3;
+  CircuitBreakerStatus secondary_circuit = 4;
+}
+
+message CircuitBreakerStatus {
+  string state = 1;           // "closed" | "open" | "half_open"
+  CircuitBreakerStats stats = 2;
+}
+
+message CircuitBreakerStats {
+  int32 failures = 1;
+  int32 successes = 2;
+  int32 timeouts = 3;
+  int32 fires = 4;
+}
