@@ -43,15 +43,8 @@ services:
     depends_on:
       pricing:
         condition: service_healthy
-    environment:
-      DB_HOST: ${DB_HOST:-136.115.105.21}
-      DB_PORT: ${DB_PORT:-1433}
-      DB_USERNAME: ${DB_USERNAME:-sa}
-      DB_PASSWORD: ${DB_PASSWORD:-EconoMarket2024!}
-      DB_DATABASE: ${DB_DATABASE:-QuetzalShip}
-      DB_ENCRYPT: ${DB_ENCRYPT:-true}
-      DB_TRUST_SERVER_CERTIFICATE: ${DB_TRUST_SERVER_CERTIFICATE:-true}
-      PRICING_SERVICE_URL: pricing:50052
+    env_file:
+      - ./services/orders/.env
     healthcheck:
       test: ["CMD-SHELL", "exit 0"]
       interval: 10s
@@ -95,7 +88,7 @@ services:
     environment:
       NODE_ENV: "production"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/health || exit 1"]
+      test:  ["CMD-SHELL", "wget -qO- http://localhost:3001/fx/health > /dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -105,14 +98,15 @@ services:
       context: .
       dockerfile: ./services/fx/Dockerfile
     container_name: quetzalship-fx
-    ports:
-      - "3001:3001"
+    expose:
+      - "50051"
+      - "3001"
     env_file:
       - ./services/fx/.env
     networks:
       - quetzalship-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:3001/fx/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/fx/health > /dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
