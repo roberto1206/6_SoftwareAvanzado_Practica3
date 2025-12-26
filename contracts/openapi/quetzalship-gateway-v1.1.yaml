@@ -1,0 +1,373 @@
+openapi: 3.0.0
+paths:
+  /health:
+    get:
+      description: Verifica el estado del API Gateway
+      operationId: HealthController_check
+      parameters: []
+      responses:
+        '200':
+          description: Gateway está funcionando correctamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+      summary: Health check del Gateway
+      tags:
+        - health
+  /v1/orders:
+    post:
+      description: Crea una nueva orden de envío en el sistema
+      operationId: OrdersRestController_create
+      parameters:
+        - name: idempotency-key
+          required: true
+          in: header
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          description: Clave para garantizar idempotencia en la creación de órdenes
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderDto'
+      responses:
+        '201':
+          description: Orden creada exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_id:
+                    type: string
+                    example: ORD-20231214-001
+                  status:
+                    type: string
+                    example: ORDER_STATUS_ACTIVE
+                  created_at:
+                    type: string
+                    example: '2023-12-14T10:30:00Z'
+                  breakdown:
+                    type: object
+                    properties:
+                      order_billable_kg:
+                        type: number
+                        example: 5.8
+                      base_subtotal:
+                        type: number
+                        example: 46.4
+                      service_subtotal:
+                        type: number
+                        example: 62.64
+                      fragile_surcharge:
+                        type: number
+                        example: 7
+                      insurance_surcharge:
+                        type: number
+                        example: 12.5
+                      subtotal_with_surcharges:
+                        type: number
+                        example: 82.14
+                      discount_amount:
+                        type: number
+                        example: 8.21
+                      total:
+                        type: number
+                        example: 73.93
+                  total:
+                    type: number
+                    example: 73.93
+        '400':
+          description: Solicitud inválida - validación fallida
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Bad Request
+                  message:
+                    type: string
+                    example: El campo weight_kg debe ser mayor a 0
+                  statusCode:
+                    type: number
+                    example: 400
+        '409':
+          description: Conflicto - Idempotency-Key con payload diferente
+        '503':
+          description: Servicio no disponible - dependencia interna falló
+        '504':
+          description: Gateway Timeout - dependencia interna no respondió a tiempo
+      summary: Crear una nueva orden de envío
+      tags:
+        - orders
+    get:
+      description: Obtiene una lista paginada de órdenes
+      operationId: OrdersRestController_list
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Número de página
+          schema:
+            example: 1
+            type: number
+        - name: pageSize
+          required: false
+          in: query
+          description: 'Cantidad de órdenes por página (default: 20, máximo: 100)'
+          schema:
+            example: 20
+            type: number
+        - name: status
+          required: false
+          in: query
+          description: Filtrar por estado de orden
+          schema:
+            enum:
+              - ACTIVE
+              - CANCELLED
+            type: string
+      responses:
+        '200':
+          description: Lista de órdenes recuperada exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        order_id:
+                          type: string
+                        destination_zone:
+                          type: string
+                        service_type:
+                          type: string
+                        status:
+                          type: string
+                        total:
+                          type: number
+                        created_at:
+                          type: string
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: number
+                      page_size:
+                        type: number
+                      total_items:
+                        type: number
+                      total_pages:
+                        type: number
+        '400':
+          description: Parámetros de consulta inválidos
+      summary: Listar todas las órdenes
+      tags:
+        - orders
+  /v1/orders/{orderId}:
+    get:
+      description: Obtiene toda la información de una orden específica
+      operationId: OrdersRestController_get
+      parameters:
+        - name: orderId
+          required: true
+          in: path
+          description: ID único de la orden
+          schema:
+            example: ORD-20231214-001
+            type: string
+      responses:
+        '200':
+          description: Detalle de la orden recuperado exitosamente
+        '404':
+          description: Orden no encontrada
+      summary: Obtener detalle completo de una orden
+      tags:
+        - orders
+  /v1/orders/{orderId}/cancel:
+    post:
+      description: Cancela una orden que está activa
+      operationId: OrdersRestController_cancel
+      parameters:
+        - name: orderId
+          required: true
+          in: path
+          description: ID único de la orden a cancelar
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Orden cancelada exitosamente
+        '404':
+          description: Orden no encontrada
+        '409':
+          description: Conflicto - orden ya está cancelada
+        '503':
+          description: Servicio no disponible
+      summary: Cancelar una orden existente
+      tags:
+        - orders
+  /v1/orders/{orderId}/receipt:
+    get:
+      description: Genera el recibo detallado de una orden
+      operationId: OrdersRestController_getReceipt
+      parameters:
+        - name: orderId
+          required: true
+          in: path
+          description: ID único de la orden
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Recibo generado exitosamente
+        '404':
+          description: Orden no encontrada
+        '503':
+          description: Servicio de recibos no disponible
+      summary: Generar recibo de una orden
+      tags:
+        - orders
+info:
+  title: orders API
+  description: API Gateway para el sistema de órdenes de envío QuetzalShip
+  version: 1.0.0
+  contact:
+    name: QuetzalShip Team
+    url: ''
+    email: 3008431000101@ingenieria.usac.edu.gt
+tags:
+  - name: orders
+    description: Operaciones de órdenes de envío
+  - name: health
+    description: Health checks del sistema
+servers: []
+components:
+  schemas:
+    PackageDto:
+      type: object
+      properties:
+        weight_kg:
+          type: number
+          description: Peso del paquete en kilogramos
+          example: 2.5
+          minimum: 0.01
+        height_cm:
+          type: number
+          description: Alto del paquete en centímetros
+          example: 30
+          minimum: 0.01
+        width_cm:
+          type: number
+          description: Ancho del paquete en centímetros
+          example: 20
+          minimum: 0.01
+        length_cm:
+          type: number
+          description: Largo del paquete en centímetros
+          example: 40
+          minimum: 0.01
+        fragile:
+          type: boolean
+          description: Indica si el paquete es frágil
+          example: false
+        declared_value_q:
+          type: number
+          description: Valor declarado del paquete en quetzales
+          example: 500
+          minimum: 0
+      required:
+        - weight_kg
+        - height_cm
+        - width_cm
+        - length_cm
+        - fragile
+        - declared_value_q
+    DiscountDto:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Tipo de descuento aplicado
+          enum:
+            - DISCOUNT_TYPE_NONE
+            - DISCOUNT_TYPE_PERCENT
+            - DISCOUNT_TYPE_FIXED
+          example: DISCOUNT_TYPE_PERCENT
+        value:
+          type: number
+          description: Valor del descuento (porcentaje 0-35 o monto fijo)
+          example: 10
+          minimum: 0
+          maximum: 35
+      required:
+        - type
+        - value
+    CreateOrderDto:
+      type: object
+      properties:
+        origin_zone:
+          type: string
+          description: Zona geográfica de origen
+          enum:
+            - ZONE_METRO
+            - ZONE_INTERIOR
+            - ZONE_FRONTERA
+          example: ZONE_METRO
+        destination_zone:
+          type: string
+          description: Zona geográfica de destino
+          enum:
+            - ZONE_METRO
+            - ZONE_INTERIOR
+            - ZONE_FRONTERA
+          example: ZONE_INTERIOR
+        service_type:
+          type: string
+          description: Tipo de servicio de envío
+          enum:
+            - SERVICE_TYPE_STANDARD
+            - SERVICE_TYPE_EXPRESS
+            - SERVICE_TYPE_SAME_DAY
+          example: SERVICE_TYPE_STANDARD
+        packages:
+          description: Lista de paquetes (mínimo 1)
+          minItems: 1
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageDto'
+        discount:
+          description: Descuento opcional
+          allOf:
+            - $ref: '#/components/schemas/DiscountDto'
+        insurance_enabled:
+          type: boolean
+          description: Indica si se requiere seguro
+          example: true
+      required:
+        - origin_zone
+        - destination_zone
+        - service_type
+        - packages
+        - insurance_enabled

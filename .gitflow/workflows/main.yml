@@ -1,0 +1,253 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ "main", "develop" ]
+  push:
+    branches:
+      - "main"
+      - "develop"
+      - "release/**"
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # --- Backend ---
+      - name: Install deps (gateway)
+        working-directory: services/gateway
+        run: npm ci
+      - name: Unit tests (gateway)
+        working-directory: services/gateway
+        run: npm test
+
+      - name: Install deps (orders)
+        working-directory: services/orders
+        run: npm ci
+      - name: Unit tests (orders)
+        working-directory: services/orders
+        run: npm test
+
+      - name: Install deps (pricing)
+        working-directory: services/pricing
+        run: npm ci
+      - name: Unit tests (pricing)
+        working-directory: services/pricing
+        run: npm test
+
+      - name: Install deps (receipt)
+        working-directory: services/receipt
+        run: npm ci
+      - name: Unit tests (receipt)
+        working-directory: services/receipt
+        run: npm test
+
+      - name: Install deps (fx)
+        working-directory: services/fx
+        run: npm ci
+      - name: Unit tests (fx)
+        working-directory: services/fx
+        run: npm test
+
+      # --- Frontend ---
+      - name: Build frontend (Vite)
+        working-directory: services/frontend
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+            npm run build
+          else
+            echo "Frontend aún no implementado"
+          fi
+
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    needs: [quality]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate OpenAPI (swagger-cli)
+        run: |
+          npm install -g swagger-cli
+          swagger-cli validate contracts/openapi/quetzalship-gateway.yaml
+
+      - name: Buf lint
+        run: docker run --rm -v "${PWD}:/workspace" -w /workspace bufbuild/buf:latest lint
+
+      - name: Buf generate
+        run: docker run --rm -v "${PWD}:/workspace" -w /workspace bufbuild/buf:latest generate
+
+  docker-build:
+    name: docker-build
+    # En PR solo se hace build/test/validación; NO se hace push a Docker Hub
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [quality, contracts]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ---- TAGGING ----
+      # main: main-<SHORT_SHA> y opcional main-latest; además latest para facilitar despliegue en VM
+      # release/<X>: tag <X> exacto (ej. v2.0.0)
+      - name: Compute Docker tags
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "TAG_MAIN=main-$SHORT_SHA" >> $GITHUB_ENV
+            echo "TAG_COURSE=main-latest" >> $GITHUB_ENV
+            echo "TAG_VM=latest" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF}" == refs/heads/release/* ]]; then
+            REL="${GITHUB_REF#refs/heads/release/}"   # ej: v2.0.0
+            echo "TAG_MAIN=$REL" >> $GITHUB_ENV
+            echo "TAG_COURSE=" >> $GITHUB_ENV
+            echo "TAG_VM=" >> $GITHUB_ENV
+          else
+            # develop u otras ramas: no publicamos a Docker Hub (pero igual cae aquí por 'push')
+            echo "TAG_MAIN=ci-$SHORT_SHA" >> $GITHUB_ENV
+            echo "TAG_COURSE=" >> $GITHUB_ENV
+            echo "TAG_VM=" >> $GITHUB_ENV
+          fi
+
+      # ---- BUILD ----
+      - name: Build frontend image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN services/frontend
+          if [ -n "$TAG_COURSE" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_VM
+          fi
+
+      - name: Build gateway image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN -f services/gateway/Dockerfile .
+          if [ -n "$TAG_COURSE" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_VM
+          fi
+
+      - name: Build orders image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN -f services/orders/Dockerfile .
+          if [ -n "$TAG_COURSE" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_VM
+          fi
+
+      - name: Build fx image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN -f services/fx/Dockerfile .
+          if [ -n "$TAG_COURSE" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_VM
+          fi
+
+      - name: Build pricing image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN -f services/pricing/Dockerfile .
+          if [ -n "$TAG_COURSE" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_VM
+          fi
+
+      - name: Build receipt image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN -f services/receipt/Dockerfile .
+          if [ -n "$TAG_COURSE" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_VM
+          fi
+
+      # ---- PUSH ----
+      # Nota: por el 'if: push', esto solo corre en pushes (no en PR).
+      # Si quieres publicar SOLO en main/release, puedes añadir un if extra por rama.
+      - name: Push frontend
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN
+          if [ -n "$TAG_COURSE" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_VM
+          fi
+
+      - name: Push gateway
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN
+          if [ -n "$TAG_COURSE" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_VM
+          fi
+
+      - name: Push orders
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN
+          if [ -n "$TAG_COURSE" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_VM
+          fi
+
+      - name: Push fx
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN
+          if [ -n "$TAG_COURSE" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_VM
+          fi  
+
+      - name: Push pricing
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN
+          if [ -n "$TAG_COURSE" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_VM
+          fi
+
+      - name: Push receipt
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN
+          if [ -n "$TAG_COURSE" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_VM
+          fi

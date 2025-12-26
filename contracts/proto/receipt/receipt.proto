@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package quetzalship.receipt.v1;
+
+import "google/protobuf/timestamp.proto";
+import "pricing/pricing.proto";
+
+option go_package = "quetzalship/receipt/v1;receiptv1";
+
+// Solicitud para generar un recibo
+message GenerateReceiptRequest {
+  string order_id = 1;
+}
+
+// Respuesta con el recibo generado
+message GenerateReceiptResponse {
+  string order_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp generated_at = 3;
+  OrderDetails order_details = 4;
+  quetzalship.pricing.v1.Breakdown breakdown = 5;
+  double total = 6;
+}
+
+// Detalles de la orden para el recibo
+message OrderDetails {
+  quetzalship.pricing.v1.Zone origin_zone = 1;
+  quetzalship.pricing.v1.Zone destination_zone = 2;
+  quetzalship.pricing.v1.ServiceType service_type = 3;
+  int32 package_count = 4;
+  bool insurance_enabled = 5;
+}
+
+// Servicio de recibos
+service ReceiptService {
+  // Generar recibo para una orden
+  rpc GenerateReceipt(GenerateReceiptRequest) returns (GenerateReceiptResponse);
+}
