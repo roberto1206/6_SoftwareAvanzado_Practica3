@@ -1,7 +1,9 @@
 import { OrdersController } from './orders.controller';
-import { OrdersStore } from './orders.store';
+import { OrdersService } from './orders.service';
 import { PricingClient } from './pricing.client';
 import { RpcException } from '@nestjs/microservices';
+import { status as GrpcStatus } from '@grpc/grpc-js';
+import { OrderStatus, Zone, ServiceType } from './entities/order.entity';
 
 function getRpcError(e: any) {
   if (e instanceof RpcException) return e.getError();
@@ -11,43 +13,112 @@ function getRpcError(e: any) {
 describe('OrdersController', () => {
   let controller: OrdersController;
 
-  // Mocks
-  let pricing: Partial<PricingClient>;
-  let store: OrdersStore;
+  let pricing: { calculatePricing: jest.Mock };
+  let service: {
+    createId: jest.Mock;
+    getByIdempotencyKey: jest.Mock;
+    saveIdempotencyKey: jest.Mock;
+    get: jest.Mock;
+    save: jest.Mock;
+    cancel: jest.Mock;
+    list: jest.Mock;
+  };
+
+  const FIXED_DATE = new Date('2023-11-14T00:00:00.000Z');
+
+  const makeOrder = (overrides: Partial<any> = {}) => ({
+    order_id: overrides.order_id ?? 'ORD-TEST-1',
+    created_at: overrides.created_at ?? FIXED_DATE,
+    status: overrides.status ?? OrderStatus.ACTIVE, // ✅ NUMÉRICO (1/2)
+
+    origin_zone: overrides.origin_zone ?? Zone.METRO,
+    destination_zone: overrides.destination_zone ?? Zone.INTERIOR,
+    service_type: overrides.service_type ?? ServiceType.STANDARD,
+
+    insurance_enabled: overrides.insurance_enabled ?? false,
+
+    discount_type: overrides.discount_type ?? undefined,
+    discount_value: overrides.discount_value ?? undefined,
+
+    order_billable_kg: overrides.order_billable_kg ?? 1,
+    base_subtotal: overrides.base_subtotal ?? 10,
+    service_subtotal: overrides.service_subtotal ?? 5,
+    fragile_surcharge: overrides.fragile_surcharge ?? 0,
+    insurance_surcharge: overrides.insurance_surcharge ?? 0,
+    subtotal_with_surcharges: overrides.subtotal_with_surcharges ?? 15,
+    discount_amount: overrides.discount_amount ?? 0,
+
+    total: overrides.total ?? 123.45,
+
+    cancelled_at: overrides.cancelled_at ?? undefined,
+    updated_at: overrides.updated_at ?? undefined,
+
+    packages: overrides.packages ?? [
+      {
+        weight_kg: 1,
+        height_cm: 10,
+        width_cm: 10,
+        length_cm: 10,
+        fragile: false,
+        declared_value_q: 0,
+        volumetric_kg: undefined,
+        billable_kg: undefined,
+      },
+    ],
+    ...overrides,
+  });
 
   beforeEach(() => {
+    jest.clearAllMocks();
+
     pricing = {
       calculatePricing: jest.fn(),
     };
 
-    store = new OrdersStore();
+    service = {
+      createId: jest.fn().mockReturnValue('ORD-TEST-1'),
+      getByIdempotencyKey: jest.fn().mockReturnValue(undefined),
+      saveIdempotencyKey: jest.fn(),
+      get: jest.fn(),
+      save: jest.fn(),
+      cancel: jest.fn(),
+      list: jest.fn(),
+    };
 
-    // Hacemos determinista el tiempo y el ID para aserciones estables
-    jest.spyOn(store, 'createId').mockReturnValue('ORD-TEST-1');
-    jest.spyOn(store, 'nowTimestamp').mockReturnValue({ seconds: 1700000000, nanos: 0 });
-
-    controller = new OrdersController(pricing as PricingClient, store);
+    controller = new OrdersController(
+      pricing as unknown as PricingClient,
+      service as unknown as OrdersService,
+    );
   });
 
-  it('CreateOrder guarda orden en memoria con breakdown/total (llama a Pricing)', async () => {
-    (pricing.calculatePricing as jest.Mock).mockResolvedValue({
-      breakdown: { total: 123.45, order_billable_kg: 1 },
+  it('CreateOrder: llama Pricing, guarda orden y retorna status/total/breakdown', async () => {
+    pricing.calculatePricing.mockResolvedValue({
+      breakdown: {
+        order_billable_kg: 1,
+        base_subtotal: 10,
+        service_subtotal: 5,
+        fragile_surcharge: 0,
+        insurance_surcharge: 0,
+        subtotal_with_surcharges: 15,
+        discount_amount: 0,
+      },
       total: 123.45,
     });
+
+    service.save.mockResolvedValue(
+      makeOrder({
+        order_id: 'ORD-TEST-1',
+        status: OrderStatus.ACTIVE,
+        total: 123.45,
+      }),
+    );
 
     const req = {
       origin_zone: 'ZONE_METRO',
       destination_zone: 'ZONE_INTERIOR',
       service_type: 'SERVICE_TYPE_STANDARD',
       packages: [
-        {
-          weight_kg: 1,
-          height_cm: 10,
-          width_cm: 10,
-          length_cm: 10,
-          fragile: false,
-          declared_value_q: 0,
-        },
+        { weight_kg: 1, height_cm: 10, width_cm: 10, length_cm: 10, fragile: false, declared_value_q: 0 },
       ],
       insurance_enabled: false,
       idempotency_key: '',
@@ -56,180 +127,207 @@ describe('OrdersController', () => {
     const res = await controller.createOrder(req);
 
     expect(pricing.calculatePricing).toHaveBeenCalledTimes(1);
+    expect(service.createId).toHaveBeenCalledTimes(1);
+    expect(service.save).toHaveBeenCalledTimes(1);
+
     expect(res.order_id).toBe('ORD-TEST-1');
-    expect(res.status).toBe('ORDER_STATUS_ACTIVE');
+    expect(res.status).toBe('ORDER_STATUS_ACTIVE'); // ✅ ahora sí
     expect(res.total).toBe(123.45);
-    expect(store.get('ORD-TEST-1')).toBeDefined();
-    expect(store.get('ORD-TEST-1')!.breakdown.total).toBe(123.45);
+    expect(res.breakdown.order_billable_kg).toBe(1);
   });
 
-  it('CreateOrder idempotente: misma key + mismo payload => misma respuesta (no duplica)', async () => {
-    (pricing.calculatePricing as jest.Mock).mockResolvedValue({
-      breakdown: { total: 50, order_billable_kg: 1 },
+  it('CreateOrder idempotente: misma key + mismo payload => devuelve orden previa (no duplica)', async () => {
+    pricing.calculatePricing.mockResolvedValue({
+      breakdown: {
+        order_billable_kg: 1,
+        base_subtotal: 10,
+        service_subtotal: 5,
+        fragile_surcharge: 0,
+        insurance_surcharge: 0,
+        subtotal_with_surcharges: 15,
+        discount_amount: 0,
+      },
       total: 50,
     });
 
-    // Primer create genera ORD-TEST-1
-    const req1 = {
-      origin_zone: 'ZONE_METRO',
-      destination_zone: 'ZONE_METRO',
-      service_type: 'SERVICE_TYPE_STANDARD',
-      packages: [
-        {
-          weight_kg: 1,
-          height_cm: 10,
-          width_cm: 10,
-          length_cm: 10,
-          fragile: false,
-          declared_value_q: 0,
-        },
-      ],
-      insurance_enabled: false,
-      idempotency_key: 'KEY-1',
-    };
-
-    const r1 = await controller.createOrder(req1);
-    expect(r1.order_id).toBe('ORD-TEST-1');
-    expect(pricing.calculatePricing).toHaveBeenCalledTimes(1);
-
-    // Segundo create: misma key + mismo payload => no genera otra
-    // Si se intenta recalcular, igual te daría mismo resultado, pero la regla es “misma respuesta”
-    // y “sin duplicar orden”.
-    (pricing.calculatePricing as jest.Mock).mockClear();
-    jest.spyOn(store, 'createId').mockReturnValue('ORD-TEST-2'); // por si intenta crear otra
-
-    const r2 = await controller.createOrder(req1);
-
-    expect(r2.order_id).toBe('ORD-TEST-1');
-    expect(pricing.calculatePricing).toHaveBeenCalledTimes(0);
-    expect(store.get('ORD-TEST-2')).toBeUndefined();
-  });
-
-  it('CreateOrder idempotente: misma key + payload distinto => FAILED_PRECONDITION', async () => {
-    (pricing.calculatePricing as jest.Mock).mockResolvedValue({
-      breakdown: { total: 50, order_billable_kg: 1 },
-      total: 50,
-    });
-
-    const base = {
-      origin_zone: 'ZONE_METRO',
-      destination_zone: 'ZONE_METRO',
-      service_type: 'SERVICE_TYPE_STANDARD',
-      packages: [
-        {
-          weight_kg: 1,
-          height_cm: 10,
-          width_cm: 10,
-          length_cm: 10,
-          fragile: false,
-          declared_value_q: 0,
-        },
-      ],
-      insurance_enabled: false,
-      idempotency_key: 'KEY-1',
-    };
-
-    await controller.createOrder(base);
-
-    const changed = { ...base, insurance_enabled: true }; // cambia payload
-
-    await expect(controller.createOrder(changed)).rejects.toBeInstanceOf(RpcException);
-    try {
-      await controller.createOrder(changed);
-    } catch (e: any) {
-      const err = getRpcError(e) as any;
-      expect(err.code).toBeDefined();
-      // FAILED_PRECONDITION (9)
-      expect(err.message).toContain('Idempotency key reused with different payload');
-    }
-  });
-
-  it('GetOrder devuelve NOT_FOUND si no existe', () => {
-    expect(() => controller.getOrder({ order_id: 'NOPE' })).toThrow(RpcException);
-    try {
-      controller.getOrder({ order_id: 'NOPE' });
-    } catch (e: any) {
-      const err = getRpcError(e) as any;
-      // NOT_FOUND (5)
-      expect(err.message).toContain('Order not found');
-    }
-  });
-
-  it('CancelOrder cambia a CANCELLED y no borra datos; doble cancel => FAILED_PRECONDITION', async () => {
-    (pricing.calculatePricing as jest.Mock).mockResolvedValue({
-      breakdown: { total: 10, order_billable_kg: 1 },
-      total: 10,
-    });
+    service.save.mockResolvedValueOnce(
+      makeOrder({
+        order_id: 'ORD-TEST-1',
+        status: OrderStatus.ACTIVE,
+        total: 50,
+      }),
+    );
 
     const req = {
       origin_zone: 'ZONE_METRO',
       destination_zone: 'ZONE_METRO',
       service_type: 'SERVICE_TYPE_STANDARD',
-      packages: [
-        {
-          weight_kg: 1,
-          height_cm: 10,
-          width_cm: 10,
-          length_cm: 10,
-          fragile: false,
-          declared_value_q: 0,
-        },
-      ],
+      packages: [{ weight_kg: 1, height_cm: 10, width_cm: 10, length_cm: 10, fragile: false, declared_value_q: 0 }],
       insurance_enabled: false,
-      idempotency_key: '',
+      idempotency_key: 'KEY-1',
     };
 
-    const created = await controller.createOrder(req);
-    expect(created.status).toBe('ORDER_STATUS_ACTIVE');
+    // 1er create -> guarda idempotencia con hash real
+    const r1 = await controller.createOrder(req);
+    expect(r1.order_id).toBe('ORD-TEST-1');
+    expect(pricing.calculatePricing).toHaveBeenCalledTimes(1);
+    expect(service.save).toHaveBeenCalledTimes(1);
+    expect(service.saveIdempotencyKey).toHaveBeenCalledTimes(1);
 
-    const cancelled = controller.cancelOrder({ order_id: created.order_id });
-    expect(cancelled.status).toBe('ORDER_STATUS_CANCELLED');
+    const [, savedHash, savedOrderId] = service.saveIdempotencyKey.mock.calls[0];
+    expect(savedOrderId).toBe('ORD-TEST-1');
 
-    // Aún existe en memoria
-    const stored = store.get(created.order_id)!;
-    expect(stored.status).toBe('ORDER_STATUS_CANCELLED');
+    // 2do create -> prev hash = hash real => NO llama pricing ni save, solo get(prev.order_id)
+    pricing.calculatePricing.mockClear();
+    service.save.mockClear();
 
-    // doble cancel
-    expect(() => controller.cancelOrder({ order_id: created.order_id })).toThrow(RpcException);
-  });
-
-  it('ListOrders pagina y filtra por status (si viene)', async () => {
-    (pricing.calculatePricing as jest.Mock).mockResolvedValue({
-      breakdown: { total: 1, order_billable_kg: 1 },
-      total: 1,
+    service.getByIdempotencyKey.mockReturnValueOnce({
+      payload_hash: savedHash,
+      order_id: 'ORD-TEST-1',
     });
 
-    // Creamos 3 órdenes
-    jest.spyOn(store, 'createId')
-      .mockReturnValueOnce('ORD-1')
-      .mockReturnValueOnce('ORD-2')
-      .mockReturnValueOnce('ORD-3');
+    service.get.mockResolvedValueOnce(
+      makeOrder({
+        order_id: 'ORD-TEST-1',
+        status: OrderStatus.ACTIVE,
+        total: 50,
+      }),
+    );
 
-    const baseReq = {
+    const r2 = await controller.createOrder(req);
+
+    expect(r2.order_id).toBe('ORD-TEST-1');
+    expect(r2.total).toBe(50);
+    expect(pricing.calculatePricing).toHaveBeenCalledTimes(0);
+    expect(service.save).toHaveBeenCalledTimes(0);
+    expect(service.get).toHaveBeenCalledWith('ORD-TEST-1');
+  });
+
+  it('CreateOrder idempotente: misma key + payload distinto => FAILED_PRECONDITION', async () => {
+    pricing.calculatePricing.mockResolvedValue({
+      breakdown: {
+        order_billable_kg: 1,
+        base_subtotal: 10,
+        service_subtotal: 5,
+        fragile_surcharge: 0,
+        insurance_surcharge: 0,
+        subtotal_with_surcharges: 15,
+        discount_amount: 0,
+      },
+      total: 50,
+    });
+
+    service.save.mockResolvedValueOnce(
+      makeOrder({
+        order_id: 'ORD-TEST-1',
+        status: OrderStatus.ACTIVE,
+        total: 50,
+      }),
+    );
+
+    const base = {
       origin_zone: 'ZONE_METRO',
       destination_zone: 'ZONE_METRO',
       service_type: 'SERVICE_TYPE_STANDARD',
       packages: [{ weight_kg: 1, height_cm: 10, width_cm: 10, length_cm: 10, fragile: false, declared_value_q: 0 }],
       insurance_enabled: false,
-      idempotency_key: '',
+      idempotency_key: 'KEY-1',
+      discount: undefined,
     };
 
-    await controller.createOrder(baseReq);
-    await controller.createOrder(baseReq);
-    await controller.createOrder(baseReq);
+    await controller.createOrder(base);
 
-    // Cancelamos ORD-2
-    controller.cancelOrder({ order_id: 'ORD-2' });
+    const [, baseHash] = service.saveIdempotencyKey.mock.calls[0];
 
-    // page_size=2
-    const res = controller.listOrders({ page: 1, page_size: 2 });
+    // payload cambia
+    const changed = { ...base, insurance_enabled: true };
+
+    service.getByIdempotencyKey.mockReturnValueOnce({
+      payload_hash: baseHash, // hash viejo
+      order_id: 'ORD-TEST-1',
+    });
+
+    try {
+      await controller.createOrder(changed);
+      fail('Expected RpcException');
+    } catch (e: any) {
+      const err = getRpcError(e) as any;
+      expect(err.code).toBe(GrpcStatus.FAILED_PRECONDITION);
+      expect(err.message).toContain('Idempotency key reused with different payload');
+    }
+  });
+
+  it('GetOrder devuelve NOT_FOUND si no existe', async () => {
+    service.get.mockResolvedValueOnce(null);
+
+    await expect(controller.getOrder({ order_id: 'NOPE' })).rejects.toBeInstanceOf(RpcException);
+
+    try {
+      await controller.getOrder({ order_id: 'NOPE' });
+    } catch (e: any) {
+      const err = getRpcError(e) as any;
+      expect(err.code).toBe(GrpcStatus.NOT_FOUND);
+      expect(err.message).toContain('Order not found');
+    }
+  });
+
+  it('CancelOrder cambia a CANCELLED; doble cancel => FAILED_PRECONDITION', async () => {
+    // 1) found activo
+    service.get.mockResolvedValueOnce(
+      makeOrder({
+        order_id: 'ORD-1',
+        status: OrderStatus.ACTIVE,
+        total: 10,
+      }),
+    );
+
+    // 2) cancel devuelve cancelado
+    service.cancel.mockResolvedValueOnce(
+      makeOrder({
+        order_id: 'ORD-1',
+        status: OrderStatus.CANCELLED,
+        total: 10,
+        cancelled_at: new Date('2023-11-15T00:00:00.000Z'),
+      }),
+    );
+
+    const cancelled = await controller.cancelOrder({ order_id: 'ORD-1' });
+    expect(cancelled.order_id).toBe('ORD-1');
+    expect(cancelled.status).toBe('ORDER_STATUS_CANCELLED');
+
+    // doble cancel: el controller primero hace get() y ve status CANCELLED
+    service.get.mockResolvedValueOnce(
+      makeOrder({
+        order_id: 'ORD-1',
+        status: OrderStatus.CANCELLED,
+        total: 10,
+        cancelled_at: new Date('2023-11-15T00:00:00.000Z'),
+      }),
+    );
+
+    await expect(controller.cancelOrder({ order_id: 'ORD-1' })).rejects.toBeInstanceOf(RpcException);
+  });
+
+  it('ListOrders pagina y filtra por status (si viene)', async () => {
+    service.list.mockResolvedValueOnce([
+      makeOrder({ order_id: 'ORD-1', status: OrderStatus.ACTIVE, created_at: new Date('2023-11-16T00:00:00.000Z'), total: 1 }),
+      makeOrder({ order_id: 'ORD-2', status: OrderStatus.CANCELLED, created_at: new Date('2023-11-15T00:00:00.000Z'), total: 2 }),
+      makeOrder({ order_id: 'ORD-3', status: OrderStatus.ACTIVE, created_at: new Date('2023-11-14T00:00:00.000Z'), total: 3 }),
+    ]);
+
+    const res = await controller.listOrders({ page: 1, page_size: 2 });
     expect(res.orders.length).toBe(2);
     expect(res.page).toBe(1);
     expect(res.page_size).toBe(2);
 
-    // filtrar CANCELLED
-    const cancelledOnly = controller.listOrders({ page: 1, page_size: 20, status: 'ORDER_STATUS_CANCELLED' });
+    // ✅ filtro CANCELLED -> el controller convierte a OrderStatus.CANCELLED
+    service.list.mockResolvedValueOnce([
+      makeOrder({ order_id: 'ORD-2', status: OrderStatus.CANCELLED, created_at: FIXED_DATE, total: 2 }),
+    ]);
+
+    const cancelledOnly = await controller.listOrders({ page: 1, page_size: 20, status: 'ORDER_STATUS_CANCELLED' });
     expect(cancelledOnly.orders.length).toBe(1);
     expect(cancelledOnly.orders[0].order_id).toBe('ORD-2');
+    expect(cancelledOnly.orders[0].status).toBe('ORDER_STATUS_CANCELLED');
   });
 });

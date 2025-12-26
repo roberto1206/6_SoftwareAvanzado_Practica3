@@ -51,6 +51,13 @@ jobs:
         working-directory: services/receipt
         run: npm test
 
+      - name: Install deps (fx)
+        working-directory: services/fx
+        run: npm ci
+      - name: Unit tests (fx)
+        working-directory: services/fx
+        run: npm test
+
       # --- Frontend ---
       - name: Build frontend (Vite)
         working-directory: services/frontend
@@ -152,6 +159,16 @@ jobs:
             docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_VM
           fi
 
+      - name: Build fx image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN -f services/fx/Dockerfile .
+          if [ -n "$TAG_COURSE" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker tag ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_VM
+          fi
+
       - name: Build pricing image
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN -f services/pricing/Dockerfile .
@@ -204,6 +221,16 @@ jobs:
           if [ -n "$TAG_VM" ]; then
             docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_VM
           fi
+
+      - name: Push fx
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN
+          if [ -n "$TAG_COURSE" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_COURSE
+          fi
+          if [ -n "$TAG_VM" ]; then
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_VM
+          fi  
 
       - name: Push pricing
         run: |
