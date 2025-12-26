@@ -249,6 +249,66 @@ paths:
       summary: Generar recibo de una orden
       tags:
         - orders
+  /fx/rate:
+    get:
+      operationId: FxController_getRate
+      parameters:
+        - name: base
+          required: true
+          in: query
+          schema:
+            example: USD
+            type: string
+        - name: quote
+          required: true
+          in: query
+          schema:
+            example: GTQ
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxRateResponseDto'
+      summary: Obtener tasa de cambio (vía gRPC)
+      tags:
+        - fx
+  /fx/convert:
+    post:
+      operationId: FxController_convert
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FxConvertRequestDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxConvertResponseDto'
+      summary: Convertir monto (vía gRPC)
+      tags:
+        - fx
+  /fx/health:
+    get:
+      operationId: FxController_health
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxHealthResponseDto'
+      summary: HealthCheck de FX (vía gRPC)
+      tags:
+        - fx
 info:
   title: orders API
   description: API Gateway para el sistema de órdenes de envío QuetzalShip
@@ -371,3 +431,77 @@ components:
         - service_type
         - packages
         - insurance_enabled
+    FxRateResponseDto:
+      type: object
+      properties:
+        base:
+          type: string
+        quote:
+          type: string
+        rate:
+          type: number
+        timestamp:
+          type: string
+        source:
+          type: string
+      required:
+        - base
+        - quote
+        - rate
+        - timestamp
+        - source
+    FxConvertRequestDto:
+      type: object
+      properties:
+        from:
+          type: string
+          example: USD
+        to:
+          type: string
+          example: GTQ
+        amount:
+          type: number
+          example: 100
+      required:
+        - from
+        - to
+        - amount
+    FxConvertResponseDto:
+      type: object
+      properties:
+        original_amount:
+          type: number
+        converted_amount:
+          type: number
+        from:
+          type: string
+        to:
+          type: string
+        rate:
+          type: number
+        timestamp:
+          type: string
+        source:
+          type: string
+      required:
+        - original_amount
+        - converted_amount
+        - from
+        - to
+        - rate
+        - timestamp
+        - source
+    FxHealthResponseDto:
+      type: object
+      properties:
+        status:
+          type: string
+        redis:
+          type: string
+        primary_circuit:
+          type: object
+        secondary_circuit:
+          type: object
+      required:
+        - status
+        - redis

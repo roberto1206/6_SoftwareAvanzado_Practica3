@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ordersApi } from '../api/orders';
 import type { OrderSummary } from '../types/orders';
+import { fxApi } from '../api/fx.api';
+
 
 const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
@@ -10,6 +12,9 @@ const OrdersPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchOrderId, setSearchOrderId] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [rateUsd, setRateUsd] = useState<number | null>(null);
+  const [rateEur, setRateEur] = useState<number | null>(null);
+
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -26,8 +31,16 @@ const OrdersPage: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, []);
 
+    // GTQ (Q) -> USD y GTQ (Q) -> EUR
+    fxApi.getRate('GTQ', 'USD')
+      .then((r) => setRateUsd(r.rate))
+      .catch(() => setRateUsd(null));
+
+    fxApi.getRate('GTQ', 'EUR')
+      .then((r) => setRateEur(r.rate))
+      .catch(() => setRateEur(null));
+  }, []);
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchOrderId.trim()) {
@@ -62,6 +75,14 @@ const OrdersPage: React.FC = () => {
     <div>
       <div className="flex-between mb-3">
         <h1>Órdenes de Envío</h1>
+        <div className="flex gap-1 mb-2">
+          <span className="chip chip-info">
+            {rateUsd ? `Q → USD: ${rateUsd.toFixed(4)}` : 'Q → USD: ...'}
+          </span>
+          <span className="chip chip-info">
+            {rateEur ? `Q → EUR: ${rateEur.toFixed(4)}` : 'Q → EUR: ...'}
+          </span>
+        </div>
         <div className="flex gap-1">
           <button
             className="btn btn-secondary"
