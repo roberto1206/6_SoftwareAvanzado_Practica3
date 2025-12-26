@@ -93,23 +93,45 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: quetzalship-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - quetzalship-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - redis-data:/data
+
   fx:
     build:
       context: .
       dockerfile: ./services/fx/Dockerfile
     container_name: quetzalship-fx
+    ports:
+      - "3001:3001"  # HTTP
     expose:
-      - "50051"
-      - "3001"
+      - "50055"      # gRPC (solo interno)
     env_file:
       - ./services/fx/.env
     networks:
       - quetzalship-net
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/fx/health > /dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
+
+volumes:
+  redis-data:
 
 networks:
   quetzalship-net:
