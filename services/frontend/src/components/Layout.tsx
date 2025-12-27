@@ -14,7 +14,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <nav className="navbar">
         <div className="navbar-content">
           <div className="navbar-brand">
-            QuetzalShip - KUBERNETS v5.0
+            QuetzalShip - KUBERNETS v5.0 - FINAL xD
           </div>
           
           <div className="navbar-links">
