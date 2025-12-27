@@ -1,34 +1,36 @@
-# ---- build ----
-FROM node:20-alpine AS build
+FROM node:20-alpine AS builder
+
 WORKDIR /app
 
-# 1. Copiar dependencias específicas de fx
+# 1. Copiar package files
 COPY services/fx/package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 
-# 2. Copiar contratos (proto) desde la raíz del contexto
+# 2. Copiar contracts COMPLETOS (esto es lo que falta)
 COPY contracts/ ./contracts/
 
-# 3. Copiar código fuente y construir
+# 3. Copiar código de FX
 COPY services/fx/ ./
+
+# 4. Build
 RUN npm run build
 
-# ---- runtime ----
-FROM node:20-alpine AS runtime
+# --- Production ---
+FROM node:20-alpine
+
 WORKDIR /app
 
-# Instalar nc para healthchecks si es necesario
-RUN apk add --no-cache busybox-extras
+# Copiar dependencies
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+
+# ⚠️ CRÍTICO: Copiar contracts en producción también
+COPY contracts/ ./contracts/
+
+COPY --from=builder /app/package*.json ./
 
 ENV NODE_ENV=production
 
-# 4. Dependencias de producción
-COPY services/fx/package*.json ./
-RUN npm ci --omit=dev --legacy-peer-deps && npm cache clean --force
+EXPOSE 50055
 
-# 5. Copiar artefactos y contratos necesarios para gRPC/proto
-COPY contracts/ ./contracts/
-COPY --from=build /app/dist ./dist
-
-EXPOSE 3001 50055
 CMD ["node", "dist/main.js"]
