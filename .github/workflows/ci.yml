@@ -273,7 +273,7 @@ jobs:
   # - Runs only on main or Git tag vX.Y.Z
   # - On main: deploy ONLY changed services
   # - On release tag: deploy ALL services
-  # Namespace: prac-sa
+  # Namespace: sa
   # =========================================================
   deploy-gke:
     name: deploy-gke
@@ -359,41 +359,41 @@ jobs:
       - name: Deploy frontend
         if: steps.scope.outputs.deploy_all == 'true' || steps.changes.outputs.frontend == 'true'
         run: |
-          NS=prac-sa
+          NS=sa
           kubectl -n $NS set image deployment/frontend frontend=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN
           kubectl -n $NS rollout status deployment/frontend
 
       - name: Deploy gateway
         if: steps.scope.outputs.deploy_all == 'true' || steps.changes.outputs.gateway == 'true'
         run: |
-          NS=prac-sa
+          NS=sa
           kubectl -n $NS set image deployment/gateway gateway=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN
           kubectl -n $NS rollout status deployment/gateway
 
       - name: Deploy orders
         if: steps.scope.outputs.deploy_all == 'true' || steps.changes.outputs.orders == 'true'
         run: |
-          NS=prac-sa
+          NS=sa
           kubectl -n $NS set image deployment/orders orders=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN
           kubectl -n $NS rollout status deployment/orders
 
       - name: Deploy fx
         if: steps.scope.outputs.deploy_all == 'true' || steps.changes.outputs.fx == 'true'
         run: |
-          NS=prac-sa
+          NS=sa
           kubectl -n $NS set image deployment/fx fx=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN
           kubectl -n $NS rollout status deployment/fx
 
       - name: Deploy pricing
         if: steps.scope.outputs.deploy_all == 'true' || steps.changes.outputs.pricing == 'true'
         run: |
-          NS=prac-sa
+          NS=sa
           kubectl -n $NS set image deployment/pricing pricing=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN
           kubectl -n $NS rollout status deployment/pricing
 
       - name: Deploy receipt
         if: steps.scope.outputs.deploy_all == 'true' || steps.changes.outputs.receipt == 'true'
         run: |
-          NS=prac-sa
+          NS=sa
           kubectl -n $NS set image deployment/receipt receipt=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN
           kubectl -n $NS rollout status deployment/receipt
