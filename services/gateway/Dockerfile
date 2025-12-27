@@ -2,30 +2,32 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-COPY services/gateway/package.json services/gateway/package-lock.json ./
+# deps
+COPY services/fx/package.json services/fx/package-lock.json ./
 RUN npm ci
 
-# Copiar contracts desde la raíz
+# code
+COPY services/fx/ ./
+
+# contracts (proto)
 COPY contracts/ ./contracts/
 
-# Copiar el código del servicio gateway
-COPY services/gateway/ ./
+# build
 RUN npm run build
 
 # ---- runtime ----
 FROM node:20-alpine AS runtime
 WORKDIR /app
 
-# curl para healthcheck HTTP
-RUN apk add --no-cache curl
-
 ENV NODE_ENV=production
-COPY services/gateway/package.json services/gateway/package-lock.json ./
+
+# deps prod
+COPY services/fx/package.json services/fx/package-lock.json ./
 RUN npm ci --omit=dev
 
-# Copiar contracts y el código compilado
-COPY contracts/ ./contracts/
+# compiled + contracts
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/contracts ./contracts
 
-EXPOSE 3000
+EXPOSE 3001 50055
 CMD ["node", "dist/main.js"]
