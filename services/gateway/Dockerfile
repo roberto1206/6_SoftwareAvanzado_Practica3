@@ -2,32 +2,32 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# deps
-COPY services/fx/package.json services/fx/package-lock.json ./
-RUN npm ci
+# 1. Dependencias
+COPY services/orders/package*.json ./
+RUN npm ci --legacy-peer-deps
 
-# code
-COPY services/fx/ ./
-
-# contracts (proto)
+# 2. Contratos y Código
 COPY contracts/ ./contracts/
+COPY services/orders/ ./
 
-# build
+# 3. Build
 RUN npm run build
 
 # ---- runtime ----
 FROM node:20-alpine AS runtime
 WORKDIR /app
 
+RUN apk add --no-cache busybox-extras
+
 ENV NODE_ENV=production
 
-# deps prod
-COPY services/fx/package.json services/fx/package-lock.json ./
-RUN npm ci --omit=dev
+# 4. Solo producción
+COPY services/orders/package*.json ./
+RUN npm ci --omit=dev --legacy-peer-deps
 
-# compiled + contracts
+# 5. Artefactos
+COPY contracts/ ./contracts/
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/contracts ./contracts
 
-EXPOSE 3001 50055
+EXPOSE 50053
 CMD ["node", "dist/main.js"]
