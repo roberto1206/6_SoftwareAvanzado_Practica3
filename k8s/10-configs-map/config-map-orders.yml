@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-config
+  namespace: sa
+data:
+  DB_HOST: "34.30.195.87"
+  DB_PORT: "1433"
+  DB_USERNAME: "sa"
+  DB_DATABASE: "QuetzalShip"
+  DB_ENCRYPT: "true"
+  DB_TRUST_SERVER_CERTIFICATE: "true"
+
+  PRICING_SERVICE_URL: "pricing:50052"

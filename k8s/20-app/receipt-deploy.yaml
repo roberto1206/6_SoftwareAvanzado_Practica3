@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: receipt
+  labels:
+    app: receipt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: receipt
+  template:
+    metadata:
+      labels:
+        app: receipt
+    spec:
+      containers:
+        - name: receipt
+          image: rmiguel12/prac3-receipt:1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 50054
+          readinessProbe:
+            tcpSocket:
+              port: 50054
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 50054
+            initialDelaySeconds: 20
+            periodSeconds: 10
