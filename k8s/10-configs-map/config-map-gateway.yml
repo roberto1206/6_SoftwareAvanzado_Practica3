@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: sa
+data:
+  NODE_ENV: "production"
+  ORDERS_GRPC_URL: "orders:50053"
+  RECEIPT_GRPC_URL: "receipt:50054"
+  FX_GRPC_URL: "fx:50055"

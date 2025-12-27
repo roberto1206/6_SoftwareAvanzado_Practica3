@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: receipt
+  labels:
+    app: receipt
+spec:
+  type: ClusterIP
+  selector:
+    app: receipt
+  ports:
+    - name: grpc
+      port: 50054
+      targetPort: 50054

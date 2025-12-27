@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: locust-run
+  namespace: sa
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: locust
+          image: python:3.11-slim
+          env:
+            - name: LOCUST_HOST
+              value: "http://34.55.252.84"
+          volumeMounts:
+            - name: locustfile
+              mountPath: /mnt/locust
+          command: ["sh","-lc"]
+          args:
+            - |
+              set -e
+              python -V
+              pip install --no-cache-dir locust==2.24.1
+              locust -f /mnt/locust/locustfile.py \
+                --headless -u 30 -r 5 -t 2m \
+                --host "$LOCUST_HOST" || true
+              echo "Locust finished"
+      volumes:
+        - name: locustfile
+          configMap:
+            name: locustfile

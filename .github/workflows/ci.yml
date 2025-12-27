@@ -397,3 +397,132 @@ jobs:
           NS=sa
           kubectl -n $NS set image deployment/receipt receipt=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN
           kubectl -n $NS rollout status deployment/receipt
+
+  post-deploy-tests:
+    name: post-deploy-tests (smoke + locust)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    needs: [deploy-gke]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Auth GCP + creds del cluster (igual que deploy)
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER }}
+          location: ${{ secrets.GKE_LOCATION }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Set namespace
+        run: echo "NS=sa" >> $GITHUB_ENV
+
+      # -----------------------------
+      # 1) Descubrir IP pública del Ingress (automático)
+      # -----------------------------
+      - name: Get Ingress public IP
+        run: |
+          set -e
+          IP=$(kubectl -n $NS get ingress quetzalship-ingress-api -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          if [ -z "$IP" ]; then
+            echo "Ingress IP empty, printing ingress:"
+            kubectl -n $NS get ingress quetzalship-ingress-api -o wide
+            exit 1
+          fi
+          echo "INGRESS_IP=$IP" >> $GITHUB_ENV
+          echo "Ingress IP: $IP"
+
+      - name: Wait Ingress ready
+        run: |
+          set -e
+          for i in {1..30}; do
+            if curl -fsS "http://$INGRESS_IP/api/health" >/dev/null; then
+              echo "Ingress ready!"
+              exit 0
+            fi
+            echo "Waiting ingress... ($i/30)"
+            sleep 5
+          done
+          echo "Ingress not ready in time"
+          curl -i "http://$INGRESS_IP/api/health" || true
+          exit 1
+
+      # -----------------------------
+      # 2) Smoke test (health + flujo mínimo)
+      # -----------------------------
+      - name: Smoke - health
+        run: |
+          set -e
+          curl -fsS "http://$INGRESS_IP/api/health"
+
+      - name: Smoke - create order
+        id: create
+        run: |
+          set -e
+          BODY='{
+            "origin_zone":"ZONE_METRO",
+            "destination_zone":"ZONE_INTERIOR",
+            "service_type":"SERVICE_TYPE_STANDARD",
+            "insurance_enabled":true,
+            "packages":[{"weight_kg":1.2,"height_cm":30,"width_cm":20,"length_cm":40,"fragile":false,"declared_value_q":500}],
+            "discount":{"type":"DISCOUNT_TYPE_PERCENT","value":10}
+          }'
+          RESP=$(curl -fsS -X POST "http://$INGRESS_IP/api/v1/orders" \
+            -H "Content-Type: application/json" \
+            -H "idempotency-key: 123e4567-e89b-12d3-a456-426614174000" \
+            -d "$BODY")
+          echo "$RESP"
+          ORDER_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['order_id'])")
+          echo "ORDER_ID=$ORDER_ID" >> $GITHUB_ENV
+          echo "Created ORDER_ID=$ORDER_ID"
+
+      - name: Smoke - get order
+        run: |
+          set -e
+          curl -fsS "http://$INGRESS_IP/api/v1/orders/$ORDER_ID"
+
+      - name: Smoke - get receipt
+        run: |
+          set -e
+          curl -fsS "http://$INGRESS_IP/api/v1/orders/$ORDER_ID/receipt"
+
+      # (Opcional) Smoke FX
+      - name: Smoke - fx rate
+        run: |
+          set -e
+          curl -fsS "http://$INGRESS_IP/api/fx/rate?base=USD&quote=GTQ"
+
+      # -----------------------------
+      # 3) Locust Job dentro de GKE
+      # -----------------------------
+      - name: Apply locust manifests
+        run: |
+          set -e
+          kubectl -n $NS delete job locust-run --ignore-not-found
+          kubectl -n $NS apply -f k8s/loadtest/locust/
+
+      - name: Wait locust job complete
+        run: |
+          set -e
+          kubectl -n $NS wait --for=condition=complete job/locust-run --timeout=10m
+
+      - name: Print locust logs
+        if: always()
+        run: |
+          set +e
+          kubectl -n $NS logs job/locust-run --tail=2000
+          kubectl -n $NS get pods -l job-name=locust-run -o wide
+
+      - name: Fail if locust job failed
+        if: always()
+        run: |
+          set -e
+          kubectl -n $NS wait --for=condition=failed job/locust-run --timeout=2s && exit 1 || exit 0
+
