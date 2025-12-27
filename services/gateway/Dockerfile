@@ -1,33 +1,33 @@
-# ---- build ----
-FROM node:20-alpine AS build
+FROM node:20-alpine AS builder
+
 WORKDIR /app
 
-# 1. Dependencias
-COPY services/orders/package*.json ./
-RUN npm ci --legacy-peer-deps
+# 1. Copiar solo package files de gateway
+COPY services/gateway/package*.json ./
+RUN npm ci
 
-# 2. Contratos y Código
+# 2. Copiar contracts (proto files)
 COPY contracts/ ./contracts/
-COPY services/orders/ ./
 
-# 3. Build
+# 3. Copiar SOLO código de gateway
+COPY services/gateway/ ./
+
+# 4. Build
 RUN npm run build
 
-# ---- runtime ----
-FROM node:20-alpine AS runtime
+# --- Production ---
+FROM node:20-alpine
+
 WORKDIR /app
 
-RUN apk add --no-cache busybox-extras
+# Copiar node_modules y build
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY contracts/ ./contracts/
+COPY --from=builder /app/package*.json ./
 
 ENV NODE_ENV=production
 
-# 4. Solo producción
-COPY services/orders/package*.json ./
-RUN npm ci --omit=dev --legacy-peer-deps
+EXPOSE 3000
 
-# 5. Artefactos
-COPY contracts/ ./contracts/
-COPY --from=build /app/dist ./dist
-
-EXPOSE 50053
 CMD ["node", "dist/main.js"]
