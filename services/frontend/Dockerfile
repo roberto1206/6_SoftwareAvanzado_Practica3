@@ -11,6 +11,7 @@ RUN npm ci
 
 # Copiar código fuente
 COPY . .
+ENV VITE_API_BASE_URL=/api
 
 # Build de producción
 RUN npm run build
