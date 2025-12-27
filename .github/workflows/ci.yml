@@ -1,0 +1,265 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ "main", "develop" ]
+  push:
+    branches:
+      - "main"
+      - "develop"
+      - "release/**"
+    tags:
+      - "v*.*.*"
+
+jobs:
+  # =========================================================
+  # Quality (tests/build)
+  # =========================================================
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # --- Backend ---
+      - name: Install deps (gateway)
+        working-directory: services/gateway
+        run: npm ci
+      - name: Unit tests (gateway)
+        working-directory: services/gateway
+        run: npm test
+
+      - name: Install deps (orders)
+        working-directory: services/orders
+        run: npm ci
+      - name: Unit tests (orders)
+        working-directory: services/orders
+        run: npm test
+
+      - name: Install deps (pricing)
+        working-directory: services/pricing
+        run: npm ci
+      - name: Unit tests (pricing)
+        working-directory: services/pricing
+        run: npm test
+
+      - name: Install deps (receipt)
+        working-directory: services/receipt
+        run: npm ci
+      - name: Unit tests (receipt)
+        working-directory: services/receipt
+        run: npm test
+
+      - name: Install deps (fx)
+        working-directory: services/fx
+        run: npm ci
+      - name: Unit tests (fx)
+        working-directory: services/fx
+        run: npm test
+
+      # --- Frontend ---
+      - name: Build frontend (Vite)
+        working-directory: services/frontend
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+            npm run build
+          else
+            echo "Frontend aún no implementado"
+          fi
+
+  # =========================================================
+  # Contracts (OpenAPI + Buf)
+  # =========================================================
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    needs: [quality]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate OpenAPI (swagger-cli)
+        run: |
+          npm install -g swagger-cli
+          swagger-cli validate contracts/openapi/quetzalship-gateway.yaml
+
+      - name: Buf lint
+        run: docker run --rm -v "${PWD}:/workspace" -w /workspace bufbuild/buf:latest lint
+
+      - name: Buf generate
+        run: docker run --rm -v "${PWD}:/workspace" -w /workspace bufbuild/buf:latest generate
+
+  # =========================================================
+  # Build & Push images to Docker Hub (deterministic tagging)
+  # =========================================================
+  docker-build:
+    name: docker-build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [quality, contracts]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- Docker Hub auth (fail fast) ----
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Verify Docker Hub auth
+        run: |
+          docker info
+          echo "Docker Hub login OK"
+
+      # ---- TAGGING (deterministic, no ambiguity) ----
+      # main -> main-<short_sha>
+      # git tag vX.Y.Z -> vX.Y.Z
+      # other pushes -> ci-<short_sha> (si querés, luego lo puedes evitar por rama)
+      - name: Compute Docker tag (TAG_MAIN)
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "TAG_MAIN=main-$SHORT_SHA" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF}" == refs/tags/v*.*.* ]]; then
+            REL_TAG="${GITHUB_REF#refs/tags/}"
+            echo "TAG_MAIN=$REL_TAG" >> $GITHUB_ENV
+          else
+            echo "TAG_MAIN=ci-$SHORT_SHA" >> $GITHUB_ENV
+          fi
+
+          echo "Resolved TAG_MAIN=$TAG_MAIN"
+
+      # ---- BUILD ----
+      - name: Build frontend image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN services/frontend
+
+      - name: Build gateway image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN -f services/gateway/Dockerfile .
+
+      - name: Build orders image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN -f services/orders/Dockerfile .
+
+      - name: Build fx image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN -f services/fx/Dockerfile .
+
+      - name: Build pricing image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN -f services/pricing/Dockerfile .
+
+      - name: Build receipt image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN -f services/receipt/Dockerfile .
+
+      # ---- PUSH ----
+      - name: Push frontend
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN
+
+      - name: Push gateway
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN
+
+      - name: Push orders
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN
+
+      - name: Push fx
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN
+
+      - name: Push pricing
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN
+
+      - name: Push receipt
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN
+
+      # ---- Evidence: tags exist per service ----
+      - name: Evidence - tags exist in registry (per service)
+        run: |
+          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN
+          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN
+          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN
+          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN
+          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN
+          docker buildx imagetools inspect ${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN
+
+  # =========================================================
+  # Deploy to GKE (same GCP_SA_KEY). Uses TAG_MAIN (no latest).
+  # Runs only on main or Git tag vX.Y.Z
+  # =========================================================
+  deploy-gke:
+    name: deploy-gke
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- Auth GCP (fail fast) ----
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Verify GCP auth + access to GKE
+        run: |
+          gcloud auth list
+          gcloud config list project
+          gcloud container clusters list --project "${{ secrets.GCP_PROJECT_ID }}"
+
+      # ---- Get kubeconfig ----
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER }}
+          location: ${{ secrets.GKE_LOCATION }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      # ---- Recompute TAG_MAIN for deploy (same deterministic rule) ----
+      - name: Compute TAG_MAIN for deploy
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "TAG_MAIN=main-$SHORT_SHA" >> $GITHUB_ENV
+          else
+            REL_TAG="${GITHUB_REF#refs/tags/}"
+            echo "TAG_MAIN=$REL_TAG" >> $GITHUB_ENV
+          fi
+          echo "Deploying TAG_MAIN=$TAG_MAIN"
+
+      # ---- Deploy (adjust deployment/container names if needed) ----
+      - name: Deploy to GKE (set image)
+        run: |
+          NS=sa
+
+          kubectl -n $NS set image deployment/frontend frontend=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-frontend:$TAG_MAIN
+          kubectl -n $NS set image deployment/gateway gateway=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-gateway:$TAG_MAIN
+          kubectl -n $NS set image deployment/orders orders=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-orders:$TAG_MAIN
+          kubectl -n $NS set image deployment/fx fx=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-fx:$TAG_MAIN
+          kubectl -n $NS set image deployment/pricing pricing=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-pricing:$TAG_MAIN
+          kubectl -n $NS set image deployment/receipt receipt=${{ secrets.DOCKERHUB_USERNAME }}/quetzalship-receipt:$TAG_MAIN
+
+          kubectl -n $NS rollout status deployment/frontend
+          kubectl -n $NS rollout status deployment/gateway
+          kubectl -n $NS rollout status deployment/orders
+          kubectl -n $NS rollout status deployment/fx
+          kubectl -n $NS rollout status deployment/pricing
+          kubectl -n $NS rollout status deployment/receipt
