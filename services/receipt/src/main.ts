@@ -30,7 +30,6 @@ async function bootstrap() {
 
   await app.listen();
   console.log('🚀 Receipt microservice is listening on port 50054');
-  console.log();
 }
 
 void bootstrap();

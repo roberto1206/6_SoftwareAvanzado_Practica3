@@ -92,7 +92,6 @@ async function bootstrap() {
   console.log('📚 Swagger UI: http://localhost:3000/api-docs');
   console.log('📄 Swagger JSON: http://localhost:3000/api-docs-json');
   console.log('');
-  console.log();
 }
 
 void bootstrap();
