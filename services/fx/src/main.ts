@@ -33,5 +33,6 @@ async function bootstrap() {
   logger.log(`  - HTTP: http://localhost:${port}`);
   logger.log(`  - gRPC: localhost:50055`);
   logger.log(`Health endpoint: http://localhost:${port}/fx/health`);
+  console.log();
 }
 bootstrap();
