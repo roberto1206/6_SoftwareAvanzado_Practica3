@@ -7,7 +7,7 @@ COPY services/fx/tsconfig*.json ./
 RUN npm ci --legacy-peer-deps
 
 COPY services/fx/src ./src
-COPY contracts /app/contracts
+COPY contracts/ ./contracts/
 
 RUN npm run build
 
