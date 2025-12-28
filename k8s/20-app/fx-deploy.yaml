@@ -1,20 +1,28 @@
-apiVersion: v1
-kind: Service
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: fx
   namespace: sa
   labels:
     app: fx
 spec:
-  type: ClusterIP
+  replicas: 1
   selector:
-    app: fx
-  ports:
-    - name: grpc
-      port: 50055
-      targetPort: 50055
-      protocol: TCP
-    - name: http
-      port: 3001
-      targetPort: 3001
-      protocol: TCP
+    matchLabels:
+      app: fx
+  template:
+    metadata:
+      labels:
+        app: fx
+    spec:
+      containers:
+        - name: fx
+          image: rmiguel12/quetzalship-fx:main-dc22a9a
+          ports:
+            - name: grpc
+              containerPort: 50055
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: fx-config

@@ -10,8 +10,8 @@ spec:
     app: fx
   ports:
     - name: grpc
-      port: 50051
-      targetPort: 50051
+      port: 50055
+      targetPort: 50055
     - name: http
       port: 3001
       targetPort: 3001
