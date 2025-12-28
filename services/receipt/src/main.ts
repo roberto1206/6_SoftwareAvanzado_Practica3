@@ -30,6 +30,7 @@ async function bootstrap() {
 
   await app.listen();
   console.log('🚀 Receipt microservice is listening on port 50054');
+  console.log('Health endpoint: http://localhost:3000/receipt/health');
 }
 
 void bootstrap();
