@@ -87,7 +87,6 @@ async function bootstrap() {
   }
 
   await app.listen(3000);
-  console.log('');
   console.log('🚀 Gateway HTTP service is listening on port 3000');
   console.log('📚 Swagger UI: http://localhost:3000/api-docs');
   console.log('📄 Swagger JSON: http://localhost:3000/api-docs-json');
